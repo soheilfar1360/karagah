@@ -592,4 +592,25 @@ a {
   z-index: 3;
   margin-bottom: 52px;
 }
+.era-tool {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.era-tool.available {
+  border-color: rgba(61, 220, 151, 0.24);
+}
+
+.era-tool.unavailable {
+  opacity: 0.48;
+  filter: grayscale(0.55);
+}
+
+.era-tool strong {
+  color: var(--text);
+}
 }

@@ -506,6 +506,28 @@ export default function Home() {
                     ))}
                   </div>
                 </div>
+                <div className="panel">
+                  <h3>امکانات این دوره</h3>
+                  <p className="small">دوره پرونده: {caseData.era}</p>
+
+                  <div className="stack">
+                    {caseData.availableTools.map((tool) => (
+                      <div
+                        key={tool.id}
+                        className={`era-tool ${tool.available ? "available" : "unavailable"}`}
+                      >
+                        <div>
+                          <strong>{tool.title}</strong>
+                          <p className="small">{tool.description}</p>
+                        </div>
+
+                        <span className="type-pill">
+                          {tool.available ? "فعال" : "غیرفعال"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
 
                 <div className="panel">
                   <h3>مظنون‌ها</h3>

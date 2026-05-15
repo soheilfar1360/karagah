@@ -10,6 +10,115 @@ export const caseData: CaseData = {
   briefing:
     "در صبح یک روز بارانی، جسد فرهاد نادری، حسابدار سابق شرکت آذر درمان، در آپارتمانش پیدا می‌شود. صحنه جرم نشانه واضحی از درگیری ندارد. یک فنجان چای نیمه‌خورده، تلفنی افتاده و کاغذی نیمه‌سوخته، تنها چیزهایی هستند که مرگ ظاهراً طبیعی او را مشکوک می‌کنند.",
   mission: "علت مرگ، قاتل، انگیزه و زنجیره اتفاقات شب حادثه را ثابت کنید.",
+
+  availableTools: [
+    {
+      id: "tool_interview",
+      title: "بازجویی حضوری",
+      description: "گفت‌وگو با مظنون‌ها و شاهدان برای پیدا کردن تناقض‌های گفتاری.",
+      available: true,
+      category: "interrogation",
+    },
+    {
+      id: "tool_scene_report",
+      title: "گزارش مأمور صحنه",
+      description: "ثبت مشاهدات اولیه مأموران از وضعیت جسد، اتاق و اشیای اطراف.",
+      available: true,
+      category: "field",
+    },
+    {
+      id: "tool_scene_photography",
+      title: "عکاسی صحنه جرم",
+      description: "ثبت محدود صحنه جرم با عکس‌های آرشیوی و کیفیت متناسب با دوره.",
+      available: true,
+      category: "field",
+    },
+    {
+      id: "tool_fingerprint",
+      title: "اثر انگشت",
+      description: "بررسی اثر انگشت روی اشیای کلیدی مثل فنجان، قوطی چای، کشو و در.",
+      available: true,
+      category: "forensic",
+    },
+    {
+      id: "tool_classic_forensics",
+      title: "پزشکی قانونی کلاسیک",
+      description: "بررسی علائم جسمی، زمان تقریبی مرگ و احتمال مسمومیت.",
+      available: true,
+      category: "forensic",
+    },
+    {
+      id: "tool_autopsy",
+      title: "کالبدشکافی",
+      description: "بررسی نشانه‌های غیرطبیعی بدن و کمک به تشخیص علت واقعی مرگ.",
+      available: true,
+      category: "forensic",
+    },
+    {
+      id: "tool_landline_records",
+      title: "بررسی مرکز تلفن",
+      description: "استعلام تماس‌های تلفن ثابت از مرکز مخابرات.",
+      available: true,
+      category: "technology",
+    },
+    {
+      id: "tool_paper_archive",
+      title: "اسناد کاغذی و آرشیو شرکت",
+      description: "بررسی رسیدها، نامه‌ها، پرونده‌های اداری و اسناد مالی.",
+      available: true,
+      category: "archive",
+    },
+    {
+      id: "tool_local_witnesses",
+      title: "شاهدان محلی",
+      description: "گفت‌وگو با همسایه، سرایدار، فروشنده عطاری و افراد اطراف قربانی.",
+      available: true,
+      category: "field",
+    },
+    {
+      id: "tool_herbal_shop_check",
+      title: "بررسی عطاری و داروخانه",
+      description: "پیگیری خریدهای مشکوک مواد گیاهی یا دارویی در اطراف محل کار و زندگی مظنون‌ها.",
+      available: true,
+      category: "field",
+    },
+    {
+      id: "tool_dna",
+      title: "آزمایش DNA",
+      description: "در این دوره برای پرونده قابل استفاده نیست.",
+      available: false,
+      category: "forensic",
+    },
+    {
+      id: "tool_gps",
+      title: "ردیابی GPS",
+      description: "در این دوره وجود ندارد.",
+      available: false,
+      category: "technology",
+    },
+    {
+      id: "tool_mobile_phone",
+      title: "بررسی موبایل",
+      description: "تلفن همراه در این دوره در دسترس پرونده نیست.",
+      available: false,
+      category: "technology",
+    },
+    {
+      id: "tool_digital_cctv",
+      title: "دوربین مداربسته دیجیتال",
+      description: "در این پرونده و این دوره قابل اتکا نیست.",
+      available: false,
+      category: "surveillance",
+    },
+    {
+      id: "tool_social_media",
+      title: "شبکه‌های اجتماعی",
+      description: "در دوره این پرونده وجود ندارد.",
+      available: false,
+      category: "technology",
+    },
+  ],
+
   victim: {
     name: "فرهاد نادری",
     age: 46,
@@ -17,6 +126,7 @@ export const caseData: CaseData = {
     summary:
       "در آپارتمان خود کنار میز تلفن مرده پیدا شد. درگیری واضحی در خانه دیده نمی‌شود.",
   },
+
   phases: [
     "کشف جسد",
     "مصاحبه‌های اولیه",
@@ -25,6 +135,7 @@ export const caseData: CaseData = {
     "تناقض آلیبی‌ها",
     "جمع‌بندی نهایی",
   ],
+
   suspects: [
     {
       id: "suspect_mehtab",
@@ -67,6 +178,7 @@ export const caseData: CaseData = {
       notes: "دروغ می‌گوید، اما الزاماً قاتل نیست. چه کشف پیچیده‌ای، آدم‌ها دروغ می‌گویند.",
     },
   ],
+
   evidence: [
     {
       id: "evidence_001",
@@ -280,6 +392,7 @@ export const caseData: CaseData = {
       isCritical: true,
     },
   ],
+
   timeline: [
     {
       id: "time_001",
@@ -324,6 +437,7 @@ export const caseData: CaseData = {
       phase: 5,
     },
   ],
+
   actions: [
     {
       id: "action_interview_mehtab",

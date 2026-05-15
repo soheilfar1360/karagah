@@ -11,6 +11,22 @@ export type EvidenceStatus = "locked" | "new" | "viewed" | "flagged" | "critical
 
 export type SuspicionLevel = "low" | "medium" | "high" | "critical";
 
+export type InvestigationToolCategory =
+  | "interrogation"
+  | "forensic"
+  | "archive"
+  | "field"
+  | "technology"
+  | "surveillance";
+
+export type InvestigationTool = {
+  id: string;
+  title: string;
+  description: string;
+  available: boolean;
+  category: InvestigationToolCategory;
+};
+
 export type EvidenceItem = {
   id: string;
   title: string;
@@ -59,6 +75,7 @@ export type CaseData = {
   duration: string;
   briefing: string;
   mission: string;
+  availableTools: InvestigationTool[];
   victim: {
     name: string;
     age: number;
