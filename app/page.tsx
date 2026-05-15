@@ -2,9 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { caseData } from "@/data/caseData";
-import { judgeAccusation } from "@/lib/judge";
 import type { EvidenceItem, FinalAccusation, JudgeResult, Suspect } from "@/types/game";
-
+import { judgeAccusation } from "@/lib/judge";
 type Screen =
   | "entrance"
   | "landing"
@@ -50,6 +49,8 @@ export default function Home() {
   const [notes, setNotes] = useState<string[]>([]);
   const [noteDraft, setNoteDraft] = useState("");
   const [result, setResult] = useState<JudgeResult | null>(null);
+  const [isJudging, setIsJudging] = useState(false);
+  const [judgeError, setJudgeError] = useState("");
 
   const [accusation, setAccusation] = useState<FinalAccusation>({
     killerId: "",
@@ -134,10 +135,38 @@ export default function Home() {
     }));
   }
 
-  function submitAccusation() {
-    const judged = judgeAccusation(accusation, availableEvidence);
-    setResult(judged);
+  async function submitAccusation() {
+    if (!isAccusationValid || isJudging) return;
+
+    setIsJudging(true);
+    setJudgeError("");
+    setResult(null);
     setScreen("result");
+
+    try {
+      const response = await fetch("/api/judge", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          accusation,
+          availableEvidence,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data?.details || data?.error || "خطای نامشخص در داوری");
+      }
+
+      setResult(data as JudgeResult);
+    } catch (error) {
+      setJudgeError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsJudging(false);
+    }
   }
 
   if (screen === "entrance") {
@@ -786,37 +815,56 @@ export default function Home() {
                 </div>
               )}
 
-              <button className="btn" disabled={!isAccusationValid} onClick={submitAccusation}>
-                ارسال به قاضی پرونده
+              <button className="btn" disabled={!isAccusationValid || isJudging} onClick={submitAccusation}>
+                {isJudging ? "در حال داوری..." : "ارسال به قاضی پرونده"}
               </button>
             </div>
           </SimplePage>
         )}
 
-        {screen === "result" && result && (
+        {screen === "result" && (
           <SimplePage title="نتیجه داوری" back={() => setScreen("final")}>
-            <div className="card stack">
-              <p className="score">{result.total}/100</p>
-              <p className="text">{result.feedback}</p>
-
-              <div className="panel">
-                <ScoreRow label="قاتل" value={result.breakdown.killer} max={20} />
-                <ScoreRow label="انگیزه" value={result.breakdown.motive} max={15} />
-                <ScoreRow label="روش قتل" value={result.breakdown.method} max={15} />
-                <ScoreRow label="زمان‌بندی" value={result.breakdown.timeWindow} max={20} />
-                <ScoreRow label="مدارک" value={result.breakdown.evidence} max={20} />
-                <ScoreRow label="رد مظنون‌ها" value={result.breakdown.explanations} max={10} />
+            {isJudging && (
+              <div className="card stack">
+                <p className="score">در حال داوری...</p>
+                <p className="text">قاضی پرونده دارد اتهام را بررسی می‌کند.</p>
               </div>
+            )}
 
-              <div className="actions">
-                <button className="btn" onClick={() => setScreen("documentary")}>
-                  مشاهده پرونده واقعی پشت داستان
-                </button>
-                <button className="btn secondary" onClick={() => setScreen("game")}>
-                  بازگشت به اتاق پرونده
+            {!isJudging && judgeError && (
+              <div className="card stack">
+                <p className="score">خطا در داوری</p>
+                <p className="text">{judgeError}</p>
+                <button className="btn secondary" onClick={() => setScreen("final")}>
+                  بازگشت به اتهام نهایی
                 </button>
               </div>
-            </div>
+            )}
+
+            {!isJudging && !judgeError && result && (
+              <div className="card stack">
+                <p className="score">{result.total}/100</p>
+                <p className="text">{result.feedback}</p>
+
+                <div className="panel">
+                  <ScoreRow label="قاتل" value={result.breakdown.killer} max={20} />
+                  <ScoreRow label="انگیزه" value={result.breakdown.motive} max={15} />
+                  <ScoreRow label="روش قتل" value={result.breakdown.method} max={15} />
+                  <ScoreRow label="زمان‌بندی" value={result.breakdown.timeWindow} max={20} />
+                  <ScoreRow label="مدارک" value={result.breakdown.evidence} max={20} />
+                  <ScoreRow label="رد مظنون‌ها" value={result.breakdown.explanations} max={10} />
+                </div>
+
+                <div className="actions">
+                  <button className="btn" onClick={() => setScreen("documentary")}>
+                    مشاهده پرونده واقعی پشت داستان
+                  </button>
+                  <button className="btn secondary" onClick={() => setScreen("game")}>
+                    بازگشت به اتاق پرونده
+                  </button>
+                </div>
+              </div>
+            )}
           </SimplePage>
         )}
 
