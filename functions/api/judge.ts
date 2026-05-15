@@ -1,5 +1,6 @@
 type Env = {
   OPENAI_API_KEY: string;
+  OPENAI_MODEL?: string;
 };
 
 type EvidenceItem = {
@@ -24,34 +25,29 @@ type JudgeRequestBody = {
   availableEvidence: EvidenceItem[];
 };
 
-export async function onRequestPost(context: {
-  request: Request;
-  env: Env;
-}) {
+export async function onRequestGet() {
+  return jsonResponse({
+    ok: true,
+    message: "Detective judge API is running.",
+  });
+}
+
+export async function onRequestPost(context: { request: Request; env: Env }) {
   try {
     const { request, env } = context;
 
     if (!env.OPENAI_API_KEY) {
-      return jsonResponse(
-        {
-          error: "OPENAI_API_KEY is missing.",
-        },
-        500
-      );
+      return jsonResponse({ error: "OPENAI_API_KEY is missing." }, 500);
     }
 
     const body = (await request.json()) as JudgeRequestBody;
 
     if (!body.accusation || !Array.isArray(body.availableEvidence)) {
-      return jsonResponse(
-        {
-          error: "Invalid request body.",
-        },
-        400
-      );
+      return jsonResponse({ error: "Invalid request body." }, 400);
     }
 
     const prompt = buildJudgePrompt(body);
+    const model = env.OPENAI_MODEL || "gpt-4.1-mini";
 
     const openAiResponse = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
@@ -60,7 +56,7 @@ export async function onRequestPost(context: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-5.2-mini",
+        model,
         input: prompt,
         text: {
           format: {
@@ -115,15 +111,8 @@ export async function onRequestPost(context: {
     });
 
     if (!openAiResponse.ok) {
-      const errorText = await openAiResponse.text();
-
-      return jsonResponse(
-        {
-          error: "OpenAI request failed.",
-          details: errorText,
-        },
-        500
-      );
+      const details = await openAiResponse.text();
+      return jsonResponse({ error: "OpenAI request failed.", details }, 500);
     }
 
     const data = await openAiResponse.json();
@@ -139,9 +128,7 @@ export async function onRequestPost(context: {
       );
     }
 
-    const result = JSON.parse(outputText);
-
-    return jsonResponse(result);
+    return jsonResponse(JSON.parse(outputText));
   } catch (error) {
     return jsonResponse(
       {
@@ -153,25 +140,19 @@ export async function onRequestPost(context: {
   }
 }
 
-export async function onRequestGet() {
-  return jsonResponse({
-    ok: true,
-    message: "Detective judge API is running.",
-  });
-}
-
 function buildJudgePrompt(body: JudgeRequestBody) {
   const { accusation, availableEvidence } = body;
 
   return `
-تو قاضی نهایی پرونده در بازی کارآگاه هستی.
+تو قاضی نهایی پرونده در بازی «کارآگاه» هستی.
 
 پرونده: آخرین چای
 دوره: دهه ۱۳۵۰
+
 حقیقت پرونده:
 - قاتل واقعی: suspect_mehtab
 - روش واقعی قتل: poisoned_tea
-- زمان واقعی: 21:10-21:30
+- زمان واقعی قتل: 21:10-21:30
 - مدارک کلیدی:
   - evidence_003: فنجان چای
   - evidence_016: قوطی چای آشپزخانه
@@ -204,12 +185,10 @@ ${JSON.stringify(
 - رد منطقی سایر مظنون‌ها: حداکثر 10
 - مجموع باید از 100 باشد.
 
-مهم:
-- فقط JSON معتبر خروجی بده.
-- feedback فارسی باشد.
-- لحن feedback جدی، پلیسی و تحلیلی باشد.
-- correctEvidence فقط id مدارک کلیدی درست انتخاب‌شده باشد.
-- missedEvidence فقط id مدارک کلیدی از دست‌رفته باشد.
+خروجی فقط JSON معتبر باشد.
+feedback فارسی، جدی، تحلیلی و مناسب فضای پلیسی باشد.
+correctEvidence فقط id مدارک کلیدی درست انتخاب‌شده باشد.
+missedEvidence فقط id مدارک کلیدی از دست‌رفته باشد.
 `;
 }
 
