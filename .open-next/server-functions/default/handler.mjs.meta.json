@@ -4500,7 +4500,7 @@
       "format": "cjs"
     },
     ".open-next/server-functions/default/.next/server/app/api/judge/route.js": {
-      "bytes": 8047,
+      "bytes": 12486,
       "imports": [
         {
           "path": ".open-next/server-functions/default/node_modules/next/dist/shared/lib/router/utils/app-paths.js",
@@ -7166,7 +7166,7 @@
           "bytesInOutput": 24352
         },
         ".open-next/server-functions/default/.next/server/app/api/judge/route.js": {
-          "bytesInOutput": 8237
+          "bytesInOutput": 15098
         },
         ".open-next/server-functions/default/.next/server/app/page.js": {
           "bytesInOutput": 98906
@@ -7322,7 +7322,7 @@
           "bytesInOutput": 57852
         }
       },
-      "bytes": 2958782
+      "bytes": 2965643
     }
   }
 }
