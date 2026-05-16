@@ -284,6 +284,188 @@ a {
   background: rgba(198, 155, 91, 0.1);
 }
 
+.player-card {
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  border: 1px solid rgba(216, 194, 143, 0.16);
+  background:
+    radial-gradient(circle at top, rgba(198, 155, 91, 0.1), transparent 58%),
+    rgba(255, 255, 255, 0.045);
+  border-radius: 18px;
+  padding: 18px;
+  transition:
+    transform 180ms ease,
+    border-color 180ms ease,
+    background 180ms ease;
+}
+
+.player-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(198, 155, 91, 0.42);
+  background:
+    radial-gradient(circle at top, rgba(198, 155, 91, 0.16), transparent 62%),
+    rgba(255, 255, 255, 0.06);
+}
+
+.avatar-frame {
+  width: 104px;
+  height: 104px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 2px solid rgba(216, 194, 143, 0.28);
+  background:
+    radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.12), transparent 38%),
+    rgba(0, 0, 0, 0.34);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 18px 44px rgba(0, 0, 0, 0.28);
+}
+
+.avatar-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.avatar-placeholder {
+  color: var(--paper);
+  font-size: 42px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.avatar-upload-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  width: 100%;
+  border-radius: 14px;
+  border: 1px solid rgba(198, 155, 91, 0.34);
+  background: rgba(198, 155, 91, 0.09);
+  color: var(--paper);
+  font-weight: 800;
+  cursor: pointer;
+  transition:
+    filter 180ms ease,
+    transform 180ms ease,
+    border-color 180ms ease;
+}
+
+.avatar-upload-btn:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.08);
+  border-color: rgba(198, 155, 91, 0.58);
+}
+
+.avatar-upload-btn input {
+  display: none;
+}
+
+.avatar-generate-btn {
+  width: 100%;
+}
+
+.character-loading {
+  width: 100%;
+  border-radius: 14px;
+  padding: 10px 12px;
+  border: 1px solid rgba(198, 155, 91, 0.26);
+  background: rgba(198, 155, 91, 0.08);
+  color: var(--paper);
+  font-size: 13px;
+  line-height: 1.7;
+  text-align: center;
+}
+
+.character-result-panel {
+  width: 100%;
+  display: grid;
+  gap: 12px;
+  border-radius: 18px;
+  padding: 12px;
+  border: 1px solid rgba(216, 194, 143, 0.18);
+  background:
+    linear-gradient(rgba(6, 10, 16, 0.68), rgba(6, 10, 16, 0.86)),
+    radial-gradient(circle at top, rgba(143, 29, 44, 0.18), transparent 60%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.035);
+}
+
+.generated-portrait-frame {
+  width: 100%;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: 16px;
+  border: 1px solid rgba(216, 194, 143, 0.2);
+  background: rgba(0, 0, 0, 0.36);
+}
+
+.generated-portrait-image {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.character-meta-section {
+  display: grid;
+  justify-items: start;
+  gap: 7px;
+  text-align: right;
+  width: 100%;
+}
+
+.character-meta-section strong {
+  color: var(--text);
+  font-size: 18px;
+}
+
+.character-detail-list {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  text-align: right;
+}
+
+.character-detail-list p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.9;
+}
+
+.character-detail-list strong {
+  color: var(--paper);
+}
+
+.character-prompt-block {
+  width: 100%;
+  border-radius: 12px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.8;
+  text-align: left;
+  direction: ltr;
+}
+
+.character-prompt-block summary {
+  cursor: pointer;
+  color: var(--paper);
+  text-align: right;
+  direction: rtl;
+}
+
+.character-prompt-block p {
+  margin: 8px 0 0;
+}
+
 .small {
   color: var(--muted);
   line-height: 1.8;
@@ -325,6 +507,33 @@ a {
 
 .evidence-card {
   text-align: right;
+}
+
+.evidence-image-wrap {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border-radius: 18px;
+  margin-bottom: 14px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(216, 194, 143, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.evidence-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  filter: saturate(0.92) contrast(1.04);
+  transition:
+    transform 220ms ease,
+    filter 220ms ease;
+}
+
+.evidence-card:hover .evidence-image {
+  transform: scale(1.035);
+  filter: saturate(1) contrast(1.08);
 }
 
 .evidence-card.locked {

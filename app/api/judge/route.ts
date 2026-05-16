@@ -6,7 +6,25 @@ type EvidenceItem = {
   isCritical?: boolean;
 };
 
-type RawAccusation = Record<string, unknown>;
+type FinalAccusation = {
+  killerId?: string;
+  suspectId?: string;
+  suspect?: string;
+  killer?: string;
+  motive?: string;
+  method?: string;
+  timeWindow?: string;
+  timeline?: string;
+  selectedEvidenceIds?: string[];
+  evidenceIds?: string[];
+  suspectExplanations?: Record<string, string>;
+  explanation?: string;
+};
+
+type JudgeRequestBody = {
+  accusation?: FinalAccusation;
+  availableEvidence?: EvidenceItem[];
+};
 
 type JudgeBreakdown = {
   killer: number;
@@ -26,12 +44,19 @@ type JudgeResult = {
   missedEvidence: string[];
 };
 
+type JudgeResponse = JudgeResult & {
+  judgedBy: "openai" | "local" | "error";
+};
+
+const MIN_JUDGE_DELAY_MS = 5000;
+
 const TRUTH = {
   killerId: "suspect_mehtab",
 
-  suspectKeywords: ["مهتاب", "mehtab", "suspect_mehtab"],
+  killerKeywords: ["suspect_mehtab", "mehtab", "مهتاب"],
 
   methodKeywords: [
+    "poisoned_tea",
     "چای",
     "سم",
     "مسموم",
@@ -42,9 +67,9 @@ const TRUTH = {
   ],
 
   timelineKeywords: [
+    "21:10-21:30",
     "21:10",
     "21:30",
-    "21",
     "۹:۱۰",
     "۹:۳۰",
     "نه و ده",
@@ -105,16 +130,14 @@ export async function OPTIONS() {
 }
 
 export async function POST(request: Request) {
+  const startedAt = Date.now();
+
   try {
-    const body = await request.json();
+    const body = (await request.json()) as JudgeRequestBody;
 
-    const accusation =
-      typeof body.accusation === "object" && body.accusation !== null
-        ? (body.accusation as RawAccusation)
-        : (body as RawAccusation);
-
+    const accusation = body.accusation ?? {};
     const availableEvidence = Array.isArray(body.availableEvidence)
-      ? (body.availableEvidence as EvidenceItem[])
+      ? body.availableEvidence
       : [];
 
     const localResult = judgeLocally(accusation, availableEvidence);
@@ -125,12 +148,16 @@ export async function POST(request: Request) {
       localResult,
     });
 
-   return jsonResponse({
-  ...(aiResult ?? localResult),
-  judgedBy: aiResult ? "openai" : "local",
-});
+    await ensureMinimumDelay(startedAt);
+
+    return jsonResponse({
+      ...(aiResult ?? localResult),
+      judgedBy: aiResult ? "openai" : "local",
+    } satisfies JudgeResponse);
   } catch (error) {
     console.error("Judge API error:", error);
+
+    await ensureMinimumDelay(startedAt);
 
     return jsonResponse(
       {
@@ -148,113 +175,67 @@ export async function POST(request: Request) {
           "داوری با خطای داخلی مواجه شد. داده‌های اتهام یا مدارک درست ارسال نشده‌اند.",
         correctEvidence: [],
         missedEvidence: TRUTH.criticalEvidenceIds,
-      },
+        judgedBy: "error",
+      } satisfies JudgeResponse,
       500
     );
   }
 }
 
 function judgeLocally(
-  accusation: RawAccusation,
+  accusation: FinalAccusation,
   availableEvidence: EvidenceItem[]
 ): JudgeResult {
-  const suspectText = readText(accusation, [
-    "suspectId",
-    "suspect",
-    "killerId",
-    "killer",
-    "culpritId",
-    "culprit",
-    "selectedSuspect",
-    "selectedKiller",
-    "selectedCulprit",
-    "accusedSuspect",
-  ]);
-
-  const methodText = readText(accusation, [
-    "method",
-    "murderMethod",
-    "selectedMethod",
-    "causeOfDeath",
-    "weapon",
-  ]);
-
-  const motiveText = readText(accusation, [
-    "motive",
-    "selectedMotive",
-    "reason",
-  ]);
-
-  const timelineText = readText(accusation, [
-    "timeline",
-    "time",
-    "murderTime",
-    "selectedTimeline",
-    "timeWindow",
-  ]);
-
-  const explanationText = readText(accusation, [
-    "explanation",
-    "reasoning",
-    "analysis",
-    "notes",
-    "finalExplanation",
-  ]);
-
-  const eliminatedSuspectsText = readText(accusation, [
-    "eliminatedSuspects",
-    "elimination",
-    "excludedSuspects",
-    "ruledOut",
-  ]);
-
-  const selectedEvidenceIds = readStringArray(accusation, [
-    "evidenceIds",
-    "selectedEvidenceIds",
-    "evidence",
-    "selectedEvidence",
-    "proofIds",
-  ]);
-
-  const allText = [
-    suspectText,
-    methodText,
-    motiveText,
-    timelineText,
-    explanationText,
-    eliminatedSuspectsText,
+  const killerText = [
+    accusation.killerId,
+    accusation.suspectId,
+    accusation.suspect,
+    accusation.killer,
   ]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
 
-  const killerScore = containsAny(
-    `${suspectText} ${allText}`.toLowerCase(),
-    TRUTH.suspectKeywords
-  )
-    ? 20
-    : 0;
+  const methodText = String(accusation.method ?? "").toLowerCase();
 
-  const motiveScore = containsAny(
-    `${motiveText} ${allText}`.toLowerCase(),
-    TRUTH.motiveKeywords
-  )
-    ? 15
-    : 0;
+  const timelineText = [
+    accusation.timeWindow,
+    accusation.timeline,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
 
-  const methodScore = containsAny(
-    `${methodText} ${allText}`.toLowerCase(),
-    TRUTH.methodKeywords
-  )
-    ? 15
-    : 0;
+  const motiveText = String(accusation.motive ?? "").toLowerCase();
 
-  const timelineScore = containsAny(
-    `${timelineText} ${allText}`.toLowerCase(),
-    TRUTH.timelineKeywords
-  )
-    ? 20
-    : 0;
+  const suspectExplanationsText = accusation.suspectExplanations
+    ? Object.values(accusation.suspectExplanations).join(" ").toLowerCase()
+    : "";
+
+  const explanationText = String(accusation.explanation ?? "").toLowerCase();
+
+  const allText = [
+    killerText,
+    methodText,
+    timelineText,
+    motiveText,
+    suspectExplanationsText,
+    explanationText,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  const killerScore = containsAny(allText, TRUTH.killerKeywords) ? 20 : 0;
+
+  const motiveScore = containsAny(allText, TRUTH.motiveKeywords) ? 15 : 0;
+
+  const methodScore = containsAny(allText, TRUTH.methodKeywords) ? 15 : 0;
+
+  const timelineScore = containsAny(allText, TRUTH.timelineKeywords) ? 20 : 0;
+
+  const selectedEvidenceIds =
+    accusation.selectedEvidenceIds ?? accusation.evidenceIds ?? [];
 
   const correctEvidence = selectedEvidenceIds.filter((id) =>
     TRUTH.criticalEvidenceIds.includes(id)
@@ -271,7 +252,7 @@ function judgeLocally(
 
   const eliminationScore = containsAny(allText, TRUTH.eliminationKeywords)
     ? 10
-    : 0;
+    : Math.min(10, countNonEmptySuspectExplanations(accusation) * 3);
 
   const total =
     killerScore +
@@ -314,7 +295,7 @@ async function judgeWithOpenAI({
   availableEvidence,
   localResult,
 }: {
-  accusation: RawAccusation;
+  accusation: FinalAccusation;
   availableEvidence: EvidenceItem[];
   localResult: JudgeResult;
 }): Promise<JudgeResult | null> {
@@ -334,60 +315,14 @@ async function judgeWithOpenAI({
     isCritical: Boolean(item.isCritical),
   }));
 
-  const prompt = `
-تو داور یک بازی کارآگاهی فارسی هستی.
-
-باید فقط JSON معتبر برگردانی. هیچ متن اضافه‌ای ننویس.
-
-حقیقت پرونده:
-- قاتل: مهتاب
-- شناسه قاتل: suspect_mehtab
-- روش قتل: چای مسموم
-- بازه زمانی قتل: 21:10 تا 21:30
-- انگیزه اصلی: ارث، وصیت‌نامه، حذف قربانی، منفعت مالی یا انتقام
-- مدارک کلیدی: ${TRUTH.criticalEvidenceIds.join(", ")}
-
-قواعد امتیازدهی:
-- killer: از 20
-- suspect: برابر با killer
-- motive: از 15
-- method: از 15
-- timeline: از 20
-- evidence: از 20
-- elimination: از 10
-- total: مجموع دقیق از 100
-- total نباید از جمع این موارد جدا باشد.
-- suspect نباید جداگانه به total اضافه شود. فقط alias برای killer است.
-
-ساختار خروجی دقیقاً:
-{
-  "total": number,
-  "breakdown": {
-    "killer": number,
-    "suspect": number,
-    "motive": number,
-    "method": number,
-    "timeline": number,
-    "evidence": number,
-    "elimination": number
-  },
-  "feedback": "string فارسی",
-  "correctEvidence": ["evidence_id"],
-  "missedEvidence": ["evidence_id"]
-}
-
-اتهام کاربر:
-${JSON.stringify(accusation, null, 2)}
-
-مدارک موجود:
-${JSON.stringify(evidenceForPrompt, null, 2)}
-
-نتیجه داوری داخلی برای راهنما:
-${JSON.stringify(localResult, null, 2)}
-`;
+  const prompt = buildJudgePrompt({
+    accusation,
+    availableEvidence: evidenceForPrompt,
+    localResult,
+  });
 
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
+    const openAiResponse = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -399,72 +334,150 @@ ${JSON.stringify(localResult, null, 2)}
         temperature: 0.2,
         text: {
           format: {
-            type: "json_object",
+            type: "json_schema",
+            name: "detective_judge_result",
+            strict: true,
+            schema: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                total: { type: "number" },
+                breakdown: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    killer: { type: "number" },
+                    suspect: { type: "number" },
+                    motive: { type: "number" },
+                    method: { type: "number" },
+                    timeline: { type: "number" },
+                    evidence: { type: "number" },
+                    elimination: { type: "number" },
+                  },
+                  required: [
+                    "killer",
+                    "suspect",
+                    "motive",
+                    "method",
+                    "timeline",
+                    "evidence",
+                    "elimination",
+                  ],
+                },
+                feedback: { type: "string" },
+                correctEvidence: {
+                  type: "array",
+                  items: { type: "string" },
+                },
+                missedEvidence: {
+                  type: "array",
+                  items: { type: "string" },
+                },
+              },
+              required: [
+                "total",
+                "breakdown",
+                "feedback",
+                "correctEvidence",
+                "missedEvidence",
+              ],
+            },
           },
         },
       }),
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("OpenAI judge failed:", response.status, errorText);
+    if (!openAiResponse.ok) {
+      const details = await openAiResponse.text();
+      console.error("OpenAI request failed:", openAiResponse.status, details);
       return null;
     }
 
-    const data = (await response.json()) as {
-      output_text?: string;
-      output?: Array<{
-        content?: Array<{
-          text?: string;
-          type?: string;
-        }>;
-      }>;
-    };
+    const data = await openAiResponse.json();
+    const outputText = extractOutputText(data);
 
-    const text = extractOpenAIText(data);
-
-    if (!text) {
-      console.error("OpenAI judge returned empty text:", data);
+    if (!outputText) {
+      console.error("No structured output returned from OpenAI:", data);
       return null;
     }
 
-    const parsed = safeParseJson(text);
+    const parsed = safeParseJson(outputText);
 
     if (!parsed) {
-      console.error("OpenAI judge returned non-JSON:", text);
+      console.error("OpenAI returned invalid JSON:", outputText);
       return null;
     }
 
     return normalizeJudgeResult(parsed, localResult);
   } catch (error) {
-    console.error("OpenAI judge error:", error);
+    console.error("OpenAI judge failed:", error);
     return null;
   }
 }
 
-function extractOpenAIText(data: {
-  output_text?: string;
-  output?: Array<{
-    content?: Array<{
-      text?: string;
-      type?: string;
-    }>;
+function buildJudgePrompt({
+  accusation,
+  availableEvidence,
+  localResult,
+}: {
+  accusation: FinalAccusation;
+  availableEvidence: Array<{
+    id: string;
+    title: string;
+    summary: string;
+    content: string;
+    isCritical: boolean;
   }>;
+  localResult: JudgeResult;
 }) {
-  if (typeof data.output_text === "string" && data.output_text.trim()) {
-    return data.output_text.trim();
-  }
+  return `
+تو داور نهایی پرونده در بازی فارسی «کارآگاه» هستی.
 
-  const textFromOutput = data.output
-    ?.flatMap((item) => item.content ?? [])
-    .map((content) => content.text ?? "")
-    .join("")
-    .trim();
+پرونده: آخرین چای
+دوره: دهه ۱۳۵۰
 
-  return textFromOutput || "";
+حقیقت پرونده:
+- قاتل واقعی: suspect_mehtab / مهتاب
+- روش واقعی قتل: poisoned_tea / مسمومیت با چای
+- زمان واقعی قتل: 21:10-21:30
+- انگیزه اصلی: ارث، وصیت‌نامه، منفعت مالی، حذف قربانی یا انتقام
+- مدارک کلیدی:
+  - evidence_003: فنجان چای
+  - evidence_016: قوطی چای آشپزخانه
+  - evidence_011: شهادت خانم ملک‌زاده
+  - evidence_015: رسید عطاری
+  - evidence_017: کلید یدکی
+  - evidence_020: تناقض بارانی
+
+قواعد نمره‌دهی:
+- killer: از 20
+- suspect: برابر با killer
+- motive: از 15
+- method: از 15
+- timeline: از 20
+- evidence: از 20
+- elimination: از 10
+- total: مجموع killer + motive + method + timeline + evidence + elimination
+- suspect فقط alias است و نباید جداگانه به total اضافه شود.
+- اگر بازیکن قاتل را درست گفته اما استدلالش ناقص است، killer می‌تواند کامل باشد ولی motive/method/evidence کم شود.
+- feedback فارسی، جدی، تحلیلی و مناسب فضای پلیسی باشد.
+- فقط JSON معتبر برگردان. هیچ متن اضافه‌ای ننویس.
+
+اتهام بازیکن:
+${JSON.stringify(accusation, null, 2)}
+
+مدارک در دسترس بازیکن:
+${JSON.stringify(availableEvidence, null, 2)}
+
+نتیجه داوری داخلی برای راهنما، نه الزام:
+${JSON.stringify(localResult, null, 2)}
+`;
 }
 
-function normalizeJudgeResult(value: unknown, fallback: JudgeResult): JudgeResult {
+function normalizeJudgeResult(
+  value: unknown,
+  fallback: JudgeResult
+): JudgeResult {
   if (typeof value !== "object" || value === null) {
     return fallback;
   }
@@ -477,9 +490,7 @@ function normalizeJudgeResult(value: unknown, fallback: JudgeResult): JudgeResul
       : {};
 
   const killer = clampScore(readNumber(rawBreakdown.killer), 0, 20);
-  const suspectRaw = clampScore(readNumber(rawBreakdown.suspect), 0, 20);
-  const suspect = suspectRaw || killer;
-
+  const suspect = clampScore(readNumber(rawBreakdown.suspect), 0, 20) || killer;
   const motive = clampScore(readNumber(rawBreakdown.motive), 0, 15);
   const method = clampScore(readNumber(rawBreakdown.method), 0, 15);
   const timeline = clampScore(readNumber(rawBreakdown.timeline), 0, 20);
@@ -497,8 +508,8 @@ function normalizeJudgeResult(value: unknown, fallback: JudgeResult): JudgeResul
       ? objectValue.feedback.trim()
       : fallback.feedback;
 
-  const correctEvidence = readArrayOfStrings(objectValue.correctEvidence);
-  const missedEvidence = readArrayOfStrings(objectValue.missedEvidence);
+  const correctEvidence = readStringList(objectValue.correctEvidence);
+  const missedEvidence = readStringList(objectValue.missedEvidence);
 
   return {
     total,
@@ -517,135 +528,6 @@ function normalizeJudgeResult(value: unknown, fallback: JudgeResult): JudgeResul
     missedEvidence:
       missedEvidence.length > 0 ? missedEvidence : fallback.missedEvidence,
   };
-}
-
-function readText(source: RawAccusation, keys: string[]) {
-  for (const key of keys) {
-    const value = source[key];
-
-    if (typeof value === "string") {
-      return value;
-    }
-
-    if (typeof value === "number") {
-      return String(value);
-    }
-
-    if (Array.isArray(value)) {
-      return value
-        .map((item) => {
-          if (typeof item === "string") return item;
-
-          if (typeof item === "object" && item !== null) {
-            const objectItem = item as Record<string, unknown>;
-
-            return String(
-              objectItem.id ??
-                objectItem.value ??
-                objectItem.title ??
-                objectItem.name ??
-                objectItem.label ??
-                ""
-            );
-          }
-
-          return "";
-        })
-        .filter(Boolean)
-        .join(" ");
-    }
-
-    if (typeof value === "object" && value !== null) {
-      const objectValue = value as Record<string, unknown>;
-
-      const possibleText =
-        objectValue.id ??
-        objectValue.value ??
-        objectValue.title ??
-        objectValue.name ??
-        objectValue.label;
-
-      if (typeof possibleText === "string") {
-        return possibleText;
-      }
-    }
-  }
-
-  return "";
-}
-
-function readStringArray(source: RawAccusation, keys: string[]) {
-  for (const key of keys) {
-    const value = source[key];
-
-    if (Array.isArray(value)) {
-      return value
-        .map((item) => {
-          if (typeof item === "string") return item;
-
-          if (typeof item === "object" && item !== null) {
-            const objectItem = item as Record<string, unknown>;
-            const id = objectItem.id ?? objectItem.value;
-
-            return typeof id === "string" ? id : "";
-          }
-
-          return "";
-        })
-        .filter(Boolean);
-    }
-  }
-
-  return [];
-}
-
-function readArrayOfStrings(value: unknown) {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value
-    .map((item) => (typeof item === "string" ? item : ""))
-    .filter(Boolean);
-}
-
-function readNumber(value: unknown) {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : 0;
-  }
-
-  return 0;
-}
-
-function clampScore(value: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, Math.round(value)));
-}
-
-function containsAny(text: string, keywords: string[]) {
-  return keywords.some((keyword) => text.includes(keyword.toLowerCase()));
-}
-
-function safeParseJson(text: string): unknown | null {
-  try {
-    return JSON.parse(text);
-  } catch {
-    const match = text.match(/\{[\s\S]*\}/);
-
-    if (!match) {
-      return null;
-    }
-
-    try {
-      return JSON.parse(match[0]);
-    } catch {
-      return null;
-    }
-  }
 }
 
 function buildFeedback({
@@ -682,7 +564,7 @@ function buildFeedback({
   if (methodScore === 0) weakParts.push("روش قتل");
   if (timelineScore === 0) weakParts.push("زمان‌بندی");
   if (evidenceScore < 15) weakParts.push("مدارک کلیدی");
-  if (eliminationScore === 0) weakParts.push("رد مظنون‌های دیگر");
+  if (eliminationScore === 0) weakParts.push("رد منطقی سایر مظنون‌ها");
 
   if (total >= 85) {
     return "تحلیل شما بسیار نزدیک به حقیقت پرونده است. مظنون اصلی، روش قتل، زمان‌بندی و بخش مهمی از مدارک کلیدی درست تشخیص داده شده‌اند.";
@@ -697,6 +579,106 @@ function buildFeedback({
   return `اتهام نهایی هنوز با حقیقت پرونده فاصله دارد. بهتر است دوباره روی ${
     weakParts.join("، ") || "انگیزه، روش قتل، زمان‌بندی و مدارک کلیدی"
   } تمرکز کنید. مدارک جاافتاده: ${missedTitles || "نامشخص"}.`;
+}
+
+function countNonEmptySuspectExplanations(accusation: FinalAccusation) {
+  if (!accusation.suspectExplanations) {
+    return 0;
+  }
+
+  return Object.values(accusation.suspectExplanations).filter(
+    (value) => value.trim().length > 0
+  ).length;
+}
+
+function extractOutputText(data: unknown): string | null {
+  if (typeof data !== "object" || data === null) {
+    return null;
+  }
+
+  const objectData = data as {
+    output_text?: unknown;
+    output?: Array<{
+      content?: Array<{
+        type?: string;
+        text?: string;
+      }>;
+    }>;
+  };
+
+  if (typeof objectData.output_text === "string") {
+    return objectData.output_text;
+  }
+
+  const text = objectData.output
+    ?.flatMap((item) => item.content ?? [])
+    .map((content) => content.text ?? "")
+    .join("")
+    .trim();
+
+  return text || null;
+}
+
+function safeParseJson(text: string): unknown | null {
+  try {
+    return JSON.parse(text);
+  } catch {
+    const match = text.match(/\{[\s\S]*\}/);
+
+    if (!match) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(match[0]);
+    } catch {
+      return null;
+    }
+  }
+}
+
+function readNumber(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  return 0;
+}
+
+function readStringList(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => (typeof item === "string" ? item : ""))
+    .filter(Boolean);
+}
+
+function clampScore(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, Math.round(value)));
+}
+
+function containsAny(text: string, keywords: string[]) {
+  return keywords.some((keyword) => text.includes(keyword.toLowerCase()));
+}
+
+async function ensureMinimumDelay(startedAt: number) {
+  const elapsed = Date.now() - startedAt;
+  const remaining = Math.max(0, MIN_JUDGE_DELAY_MS - elapsed);
+
+  if (remaining > 0) {
+    await wait(remaining);
+  }
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function corsHeaders() {

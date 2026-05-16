@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { caseData } from "@/data/caseData";
+import type { GeneratedCharacter } from "@/types/character";
 import type { EvidenceItem, FinalAccusation, JudgeResult, Suspect } from "@/types/game";
 
 type Screen =
@@ -38,6 +39,125 @@ const documentaryText = `پرونده «آخرین چای» از چند الگو
 این پرونده نشان می‌دهد که در تحقیقات جنایی، همیشه پرصداترین مظنون قاتل نیست. گاهی یک تناقض کوچک، یک فنجان نیمه‌خورده و یک جمله اشتباه در بازجویی، بیشتر از تهدیدهای آشکار حقیقت را نشان می‌دهد.`;
 
 const CUSTOM_CASE_STORAGE_KEY = "karagah_custom_case";
+const PLAYERS_STORAGE_KEY = "karagah_players";
+const MAX_AVATAR_SIZE = 2 * 1024 * 1024;
+const AVATAR_FILE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+
+type Player = {
+  id: string;
+  name: string;
+  avatar?: string;
+  characterProfile?: GeneratedCharacter;
+  isGeneratingCharacter?: boolean;
+};
+
+function createPlayers(countValue: string, firstPlayerName: string, existingPlayers: Player[] = []) {
+  const count = Math.max(1, Math.min(4, Number(countValue) || 1));
+
+  return Array.from({ length: count }, (_, index) => {
+    const existingPlayer = existingPlayers[index];
+    const fallbackName = index === 0 ? firstPlayerName : `بازیکن ${index + 1}`;
+
+    return {
+      id: existingPlayer?.id ?? `player_${index + 1}`,
+      name: existingPlayer?.name || fallbackName,
+      avatar: existingPlayer?.avatar,
+      characterProfile: existingPlayer?.characterProfile,
+      isGeneratingCharacter: false,
+    };
+  });
+}
+
+function readStoredPlayers(value: string | null): Player[] {
+  if (!value) return [];
+
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed
+      .filter((player) => player && typeof player === "object")
+      .map((player, index) => {
+        const candidate = player as Partial<Player>;
+
+        return {
+          id: typeof candidate.id === "string" ? candidate.id : `player_${index + 1}`,
+          name: typeof candidate.name === "string" && candidate.name.trim()
+            ? candidate.name
+            : `بازیکن ${index + 1}`,
+          avatar: typeof candidate.avatar === "string" ? candidate.avatar : undefined,
+          characterProfile: readGeneratedCharacter(candidate.characterProfile),
+          isGeneratingCharacter: false,
+        };
+      });
+  } catch {
+    return [];
+  }
+}
+
+function playerInitial(name: string) {
+  return name.trim().charAt(0) || "؟";
+}
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+function readGeneratedCharacter(value: unknown): GeneratedCharacter | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+
+  const candidate = value as Partial<GeneratedCharacter>;
+  if (typeof candidate.displayName !== "string" || !candidate.displayName.trim()) {
+    return undefined;
+  }
+
+  return {
+    displayName: candidate.displayName,
+    role: typeof candidate.role === "string" ? candidate.role : "",
+    archetype: typeof candidate.archetype === "string" ? candidate.archetype : "",
+    ageRange: typeof candidate.ageRange === "string" ? candidate.ageRange : "",
+    appearance: typeof candidate.appearance === "string" ? candidate.appearance : "",
+    outfit: typeof candidate.outfit === "string" ? candidate.outfit : "",
+    personality: typeof candidate.personality === "string" ? candidate.personality : "",
+    backstory: typeof candidate.backstory === "string" ? candidate.backstory : "",
+    secret: typeof candidate.secret === "string" ? candidate.secret : "",
+    speakingStyle: typeof candidate.speakingStyle === "string" ? candidate.speakingStyle : "",
+    avatarPrompt: typeof candidate.avatarPrompt === "string" ? candidate.avatarPrompt : "",
+    portraitDataUrl: typeof candidate.portraitDataUrl === "string" ? candidate.portraitDataUrl : undefined,
+  };
+}
+
+function persistPlayers(playersToPersist: Player[]) {
+  const playersForStorage = playersToPersist.map(({ isGeneratingCharacter, ...player }) => ({
+    ...player,
+    isGeneratingCharacter: undefined,
+  }));
+
+  try {
+    window.localStorage.setItem(PLAYERS_STORAGE_KEY, JSON.stringify(playersForStorage));
+  } catch (error) {
+    console.warn("Failed to persist players with portraits:", error);
+
+    const lighterPlayers = playersForStorage.map((player) => ({
+      ...player,
+      characterProfile: player.characterProfile
+        ? { ...player.characterProfile, portraitDataUrl: undefined }
+        : undefined,
+    }));
+
+    try {
+      window.localStorage.setItem(PLAYERS_STORAGE_KEY, JSON.stringify(lighterPlayers));
+    } catch (fallbackError) {
+      console.warn("Failed to persist compact players:", fallbackError);
+    }
+  }
+}
 
 function createSuspectExplanations(suspects: Suspect[]) {
   return suspects.reduce<Record<string, string>>((acc, suspect) => {
@@ -133,6 +253,7 @@ export default function Home() {
   const [isCustomCaseActive, setIsCustomCaseActive] = useState(false);
   const [playerName, setPlayerName] = useState("کارآگاه");
   const [playerCount, setPlayerCount] = useState("1");
+  const [players, setPlayers] = useState<Player[]>(() => createPlayers("1", "کارآگاه"));
   const [mode, setMode] = useState<"solo" | "team">("solo");
   const [selectedRole, setSelectedRole] = useState("lead");
   const [currentPhase, setCurrentPhase] = useState(1);
@@ -147,6 +268,23 @@ export default function Home() {
   const [accusation, setAccusation] = useState<FinalAccusation>(() =>
     createInitialAccusation(caseData.suspects)
   );
+
+  useEffect(() => {
+    const storedPlayers = readStoredPlayers(window.localStorage.getItem(PLAYERS_STORAGE_KEY));
+    if (storedPlayers.length === 0) return;
+
+    const storedCount = String(Math.max(1, Math.min(4, storedPlayers.length)));
+    const storedFirstPlayerName = storedPlayers[0]?.name || playerName;
+
+    setPlayerCount(storedCount);
+    setMode(storedCount === "1" ? "solo" : "team");
+    setPlayerName(storedFirstPlayerName);
+    setPlayers(createPlayers(storedCount, storedFirstPlayerName, storedPlayers));
+  }, []);
+
+  useEffect(() => {
+    persistPlayers(players);
+  }, [players]);
 
   useEffect(() => {
     const storedCase = window.localStorage.getItem(CUSTOM_CASE_STORAGE_KEY);
@@ -208,6 +346,110 @@ export default function Home() {
   function handlePlayerCountChange(value: string) {
     setPlayerCount(value);
     setMode(value === "1" ? "solo" : "team");
+    setPlayers((prev) => createPlayers(value, playerName, prev));
+  }
+
+  function handlePlayerNameChange(value: string) {
+    setPlayerName(value);
+    setPlayers((prev) =>
+      prev.map((player, index) => (index === 0 ? { ...player, name: value || "کارآگاه" } : player))
+    );
+  }
+
+  function handlePlayerCardNameChange(playerId: string, value: string) {
+    if (players[0]?.id === playerId) {
+      setPlayerName(value);
+    }
+
+    setPlayers((prev) =>
+      prev.map((player) => {
+        if (player.id !== playerId) return player;
+
+        return {
+          ...player,
+          name: value,
+        };
+      })
+    );
+  }
+
+  async function handleAvatarUpload(playerId: string, event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file) return;
+
+    if (!AVATAR_FILE_TYPES.has(file.type)) {
+      alert("فرمت تصویر باید PNG، JPG/JPEG یا WebP باشد.");
+      return;
+    }
+
+    if (file.size > MAX_AVATAR_SIZE) {
+      alert("حجم تصویر آواتار باید حداکثر ۲ مگابایت باشد.");
+      return;
+    }
+
+    try {
+      const avatar = await fileToDataUrl(file);
+      setPlayers((prev) =>
+        prev.map((player) =>
+          player.id === playerId ? { ...player, avatar, characterProfile: undefined } : player
+        )
+      );
+    } catch {
+      alert("خواندن تصویر آواتار ناموفق بود. لطفاً فایل دیگری انتخاب کنید.");
+    }
+  }
+
+  async function handleGenerateCharacter(playerId: string) {
+    const player = players.find((item) => item.id === playerId);
+    if (!player?.avatar || player.isGeneratingCharacter) return;
+
+    setPlayers((prev) =>
+      prev.map((item) =>
+        item.id === playerId ? { ...item, isGeneratingCharacter: true } : item
+      )
+    );
+
+    try {
+      const response = await fetch("/api/generate-character-image", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          playerId: player.id,
+          playerName: player.name,
+          preferredRole: selectedRole,
+          avatarDataUrl: player.avatar,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || "ساخت کاراکتر ناموفق بود.");
+      }
+
+      setPlayers((prev) =>
+        prev.map((item) =>
+          item.id === playerId
+            ? {
+                ...item,
+                characterProfile: data.character as GeneratedCharacter,
+                isGeneratingCharacter: false,
+              }
+            : item
+        )
+      );
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "ساخت کاراکتر ناموفق بود.");
+      setPlayers((prev) =>
+        prev.map((item) =>
+          item.id === playerId ? { ...item, isGeneratingCharacter: false } : item
+        )
+      );
+    }
   }
 
   function goToGame() {
@@ -428,7 +670,7 @@ export default function Home() {
                   <input
                     className="input"
                     value={playerName}
-                    onChange={(event) => setPlayerName(event.target.value)}
+                    onChange={(event) => handlePlayerNameChange(event.target.value)}
                   />
                 </div>
 
@@ -467,7 +709,7 @@ export default function Home() {
                   <input
                     className="input"
                     value={playerName}
-                    onChange={(event) => setPlayerName(event.target.value)}
+                    onChange={(event) => handlePlayerNameChange(event.target.value)}
                   />
                 </div>
 
@@ -498,7 +740,7 @@ export default function Home() {
                   <input
                     className="input"
                     value={playerName}
-                    onChange={(event) => setPlayerName(event.target.value)}
+                    onChange={(event) => handlePlayerNameChange(event.target.value)}
                   />
                 </div>
 
@@ -514,11 +756,54 @@ export default function Home() {
               </div>
 
               <div className="grid-4">
-                {["کارآگاه", "بازجو", "پزشکی قانونی", "تحلیل‌گر"].map((avatar) => (
-                  <button key={avatar} className="role-card" type="button">
-                    <h3>{avatar}</h3>
-                    <p className="small">آواتار نمایشی برای نسخه MVP</p>
-                  </button>
+                {players.map((player) => (
+                  <div key={player.id} className="player-card">
+                    <div className="avatar-frame">
+                      {player.avatar ? (
+                        <img src={player.avatar} alt={player.name} className="avatar-image" />
+                      ) : (
+                        <span className="avatar-placeholder">{playerInitial(player.name)}</span>
+                      )}
+                    </div>
+
+                    <div className="field">
+                      <label>نام بازیکن</label>
+                      <input
+                        className="input"
+                        value={player.name}
+                        onChange={(event) =>
+                          handlePlayerCardNameChange(player.id, event.target.value)
+                        }
+                      />
+                    </div>
+
+                    <label className="avatar-upload-btn">
+                      انتخاب تصویر
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        onChange={(event) => handleAvatarUpload(player.id, event)}
+                      />
+                    </label>
+
+                    <button
+                      className="btn secondary avatar-generate-btn"
+                      disabled={!player.avatar || player.isGeneratingCharacter}
+                      onClick={() => handleGenerateCharacter(player.id)}
+                    >
+                      {player.isGeneratingCharacter
+                        ? "در حال ساخت کاراکتر..."
+                        : "ساخت کاراکتر از روی عکس"}
+                    </button>
+
+                    {player.isGeneratingCharacter && (
+                      <div className="character-loading">در حال تحلیل عکس و ساخت پرتره...</div>
+                    )}
+
+                    {player.characterProfile && (
+                      <CharacterProfilePanel character={player.characterProfile} />
+                    )}
+                  </div>
                 ))}
               </div>
 
@@ -1068,6 +1353,48 @@ function SimplePage({
 
       {children}
     </section>
+  );
+}
+
+function CharacterProfilePanel({ character }: { character: GeneratedCharacter }) {
+  return (
+    <div className="character-result-panel">
+      {character.portraitDataUrl && (
+        <div className="generated-portrait-frame">
+          <img
+            src={character.portraitDataUrl}
+            alt={character.displayName}
+            className="generated-portrait-image"
+          />
+        </div>
+      )}
+
+      <div className="character-meta-section">
+        <strong>{character.displayName}</strong>
+        <span className="type-pill">{character.role}</span>
+        <span className="small">{character.archetype}</span>
+      </div>
+
+      <div className="character-detail-list">
+        <p>
+          <strong>شخصیت: </strong>
+          {character.personality}
+        </p>
+        <p>
+          <strong>پیشینه: </strong>
+          {character.backstory}
+        </p>
+        <p>
+          <strong>راز: </strong>
+          {character.secret}
+        </p>
+      </div>
+
+      <details className="character-prompt-block">
+        <summary>پرامپت تصویر</summary>
+        <p>{character.avatarPrompt}</p>
+      </details>
+    </div>
   );
 }
 
