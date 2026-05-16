@@ -1,0 +1,1 @@
+globalThis.__RSC_MANIFEST=(globalThis.__RSC_MANIFEST||{});globalThis.__RSC_MANIFEST["/api/judge/route"]={"moduleLoading":{"prefix":"/_next/"},"ssrModuleMapping":{},"edgeSSRModuleMapping":{},"clientModules":{},"entryCSSFiles":{"C:\\Users\\lenovo\\Desktop\\karagah\\karagah\\app\\api\\judge\\route":[]},"rscModuleMapping":{},"edgeRscModuleMapping":{}};
