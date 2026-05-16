@@ -35,6 +35,7 @@ export type EvidenceItem = {
   summary: string;
   content: string;
   status: EvidenceStatus;
+  image?: string;
   relatedSuspects?: string[];
   isCritical?: boolean;
 };

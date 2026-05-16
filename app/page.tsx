@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { caseData } from "@/data/caseData";
 import type { EvidenceItem, FinalAccusation, JudgeResult, Suspect } from "@/types/game";
-import { judgeAccusation } from "@/lib/judge";
+
 type Screen =
   | "entrance"
   | "landing"
@@ -37,8 +37,100 @@ const documentaryText = `پرونده «آخرین چای» از چند الگو
 
 این پرونده نشان می‌دهد که در تحقیقات جنایی، همیشه پرصداترین مظنون قاتل نیست. گاهی یک تناقض کوچک، یک فنجان نیمه‌خورده و یک جمله اشتباه در بازجویی، بیشتر از تهدیدهای آشکار حقیقت را نشان می‌دهد.`;
 
+const CUSTOM_CASE_STORAGE_KEY = "karagah_custom_case";
+
+function createSuspectExplanations(suspects: Suspect[]) {
+  return suspects.reduce<Record<string, string>>((acc, suspect) => {
+    acc[suspect.id] = "";
+    return acc;
+  }, {});
+}
+
+function createInitialAccusation(suspects: Suspect[]): FinalAccusation {
+  return {
+    killerId: "",
+    motive: "",
+    method: "",
+    timeWindow: "",
+    selectedEvidenceIds: [],
+    suspectExplanations: createSuspectExplanations(suspects),
+  };
+}
+
+function normalizeCaseData(candidate: unknown): typeof caseData {
+  if (!candidate || typeof candidate !== "object") {
+    return caseData;
+  }
+
+  const raw = candidate as Record<string, any>;
+
+  const suspects = Array.isArray(raw.suspects) && raw.suspects.length > 0
+    ? raw.suspects.map((suspect: any, index: number) => ({
+        ...caseData.suspects[index % caseData.suspects.length],
+        ...suspect,
+        id: String(suspect?.id || `suspect_${index + 1}`),
+        name: String(suspect?.name || `مظنون ${index + 1}`),
+        relation: String(suspect?.relation || suspect?.role || "نامشخص"),
+        alibi: String(suspect?.alibi || "نامشخص"),
+        suspicionLevel: Number(suspect?.suspicionLevel ?? 50),
+      }))
+    : caseData.suspects;
+
+  const evidence = Array.isArray(raw.evidence) && raw.evidence.length > 0
+    ? raw.evidence.map((item: any, index: number) => ({
+        ...caseData.evidence[index % caseData.evidence.length],
+        ...item,
+        id: String(item?.id || `evidence_${String(index + 1).padStart(3, "0")}`),
+        title: String(item?.title || `مدرک ${index + 1}`),
+        summary: String(item?.summary || item?.description || ""),
+        content: String(item?.content || item?.summary || item?.description || ""),
+        type: String(item?.type || "مدرک"),
+        phase: Number(item?.phase ?? 1),
+      }))
+    : caseData.evidence;
+
+  const victim = {
+    ...caseData.victim,
+    ...(raw.victim && typeof raw.victim === "object" ? raw.victim : {}),
+    name: String(raw.victim?.name || caseData.victim.name),
+    age: Number(raw.victim?.age ?? caseData.victim.age),
+    summary: String(raw.victim?.summary || raw.victim?.description || caseData.victim.summary),
+  };
+
+  return {
+    ...caseData,
+    ...raw,
+    id: String(raw.id || caseData.id),
+    title: String(raw.title || caseData.title),
+    subtitle: String(raw.subtitle || caseData.subtitle),
+    era: String(raw.era || caseData.era),
+    location: String(raw.location || caseData.location),
+    duration: String(raw.duration || caseData.duration),
+    briefing: String(raw.briefing || raw.intro || raw.opening || caseData.briefing),
+    mission: String(raw.mission || raw.objective || caseData.mission),
+    victim,
+    suspects,
+    evidence,
+    phases: Array.isArray(raw.phases) && raw.phases.length > 0 ? raw.phases : caseData.phases,
+    timeline: Array.isArray(raw.timeline)
+      ? raw.timeline.map((item: any, index: number) => ({
+          ...item,
+          id: String(item?.id || `timeline_${index + 1}`),
+          time: String(item?.time || ""),
+          title: String(item?.title || `رویداد ${index + 1}`),
+          description: String(item?.description || item?.summary || ""),
+          phase: Number(item?.phase ?? 1),
+        }))
+      : caseData.timeline,
+    actions: Array.isArray(raw.actions) ? raw.actions : caseData.actions,
+    availableTools: Array.isArray(raw.availableTools) ? raw.availableTools : caseData.availableTools,
+  } as typeof caseData;
+}
+
 export default function Home() {
   const [screen, setScreen] = useState<Screen>("entrance");
+  const [activeCase, setActiveCase] = useState(() => normalizeCaseData(caseData));
+  const [isCustomCaseActive, setIsCustomCaseActive] = useState(false);
   const [playerName, setPlayerName] = useState("کارآگاه");
   const [playerCount, setPlayerCount] = useState("1");
   const [mode, setMode] = useState<"solo" | "team">("solo");
@@ -52,27 +144,60 @@ export default function Home() {
   const [isJudging, setIsJudging] = useState(false);
   const [judgeError, setJudgeError] = useState("");
 
-  const [accusation, setAccusation] = useState<FinalAccusation>({
-    killerId: "",
-    motive: "",
-    method: "",
-    timeWindow: "",
-    selectedEvidenceIds: [],
-    suspectExplanations: {
-      suspect_naser: "",
-      suspect_leyla: "",
-      suspect_kamran: "",
-    },
-  });
+  const [accusation, setAccusation] = useState<FinalAccusation>(() =>
+    createInitialAccusation(caseData.suspects)
+  );
+
+  useEffect(() => {
+    const storedCase = window.localStorage.getItem(CUSTOM_CASE_STORAGE_KEY);
+
+    if (!storedCase) {
+      const normalizedDefaultCase = normalizeCaseData(caseData);
+      setActiveCase(normalizedDefaultCase);
+      setIsCustomCaseActive(false);
+      setSelectedEvidenceId(normalizedDefaultCase.evidence[0]?.id ?? "");
+      setCurrentPhase(1);
+      setFlaggedEvidenceIds([]);
+      setNotes([]);
+      setResult(null);
+      setJudgeError("");
+      setAccusation(createInitialAccusation(normalizedDefaultCase.suspects));
+      return;
+    }
+
+    try {
+      const parsedCase = JSON.parse(storedCase);
+      const normalizedCustomCase = normalizeCaseData(parsedCase);
+
+      setActiveCase(normalizedCustomCase);
+      setIsCustomCaseActive(true);
+      setSelectedEvidenceId(normalizedCustomCase.evidence[0]?.id ?? "");
+      setCurrentPhase(1);
+      setFlaggedEvidenceIds([]);
+      setNotes([]);
+      setResult(null);
+      setJudgeError("");
+      setAccusation(createInitialAccusation(normalizedCustomCase.suspects));
+    } catch (error) {
+      console.error("Failed to load custom case:", error);
+
+      const normalizedDefaultCase = normalizeCaseData(caseData);
+      setActiveCase(normalizedDefaultCase);
+      setIsCustomCaseActive(false);
+      setSelectedEvidenceId(normalizedDefaultCase.evidence[0]?.id ?? "");
+      setCurrentPhase(1);
+      setAccusation(createInitialAccusation(normalizedDefaultCase.suspects));
+    }
+  }, []);
 
   const availableEvidence = useMemo(() => {
-    return caseData.evidence.filter((item) => item.phase <= currentPhase);
+    return activeCase.evidence.filter((item) => item.phase <= currentPhase);
   }, [currentPhase]);
 
   const selectedEvidence =
-    caseData.evidence.find((item) => item.id === selectedEvidenceId) ?? availableEvidence[0];
+    activeCase.evidence.find((item) => item.id === selectedEvidenceId) ?? availableEvidence[0];
 
-  const progressPercent = Math.round((currentPhase / caseData.phases.length) * 100);
+  const progressPercent = Math.round((currentPhase / activeCase.phases.length) * 100);
 
   const isAccusationValid =
     accusation.killerId &&
@@ -87,25 +212,25 @@ export default function Home() {
 
   function goToGame() {
     setCurrentPhase(1);
-    setSelectedEvidenceId("evidence_001");
+    setSelectedEvidenceId(activeCase.evidence[0]?.id ?? "");
     setScreen("game");
   }
 
   function unlockAction(ids: string[], targetPhase?: number) {
-    const highestEvidencePhase = caseData.evidence
+    const highestEvidencePhase = activeCase.evidence
       .filter((item) => ids.includes(item.id))
       .reduce((max, item) => Math.max(max, item.phase), currentPhase);
 
     const nextPhase = Math.max(currentPhase, targetPhase ?? highestEvidencePhase);
-    setCurrentPhase(Math.min(nextPhase, caseData.phases.length));
+    setCurrentPhase(Math.min(nextPhase, activeCase.phases.length));
 
-    const firstUnlocked = caseData.evidence.find((item) => ids.includes(item.id));
+    const firstUnlocked = activeCase.evidence.find((item) => ids.includes(item.id));
     if (firstUnlocked) {
       setSelectedEvidenceId(firstUnlocked.id);
     }
 
     const actionNote = `اقدام انجام شد. مدارک جدید آزاد شدند: ${ids
-      .map((id) => caseData.evidence.find((item) => item.id === id)?.title)
+      .map((id) => activeCase.evidence.find((item) => item.id === id)?.title)
       .filter(Boolean)
       .join("، ")}`;
 
@@ -152,6 +277,7 @@ export default function Home() {
         body: JSON.stringify({
           accusation,
           availableEvidence,
+          truth: (activeCase as any).truth,
         }),
       });
 
@@ -257,7 +383,7 @@ export default function Home() {
         {screen === "landing" && (
           <section className="hero">
             <div>
-              <span className="badge">پرونده ۰۰۱ • MVP Prototype</span>
+              <span className="badge">{isCustomCaseActive ? "پرونده سفارشی فعال" : "پرونده ۰۰۱ • MVP Prototype"}</span>
               <h1 className="title">کارآگاه</h1>
               <p className="subtitle">پرونده را نخوان. حلش کن.</p>
               <p className="text">
@@ -278,9 +404,9 @@ export default function Home() {
             </div>
 
             <div className="card case-preview">
-              <span className="badge">{caseData.era}</span>
-              <h2>{caseData.title}</h2>
-              <p className="text">{caseData.briefing}</p>
+              <span className="badge">{activeCase.era}</span>
+              <h2>{activeCase.title}</h2>
+              <p className="text">{activeCase.briefing}</p>
 
               <div className="actions">
                 <button className="btn ghost" onClick={() => setScreen("room")}>
@@ -463,11 +589,63 @@ export default function Home() {
           <SimplePage title="Briefing پرونده" back={() => setScreen("roles")}>
             <div className="card stack">
               <span className="badge">
-                {caseData.location} • {caseData.era} • {caseData.duration}
+                {activeCase.location} • {activeCase.era} • {activeCase.duration}
               </span>
 
-              <h1>{caseData.title}</h1>
-              <p className="text">{caseData.briefing}</p>
+              <h1>{activeCase.title}</h1>
+
+              <div
+                className="panel stack"
+                style={{
+                  padding: 18,
+                  borderRadius: 24,
+                  background:
+                    "radial-gradient(circle at top left, rgba(216, 194, 143, 0.12), transparent 34%), rgba(10, 18, 30, 0.72)",
+                  border: "1px solid rgba(216, 194, 143, 0.18)",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    justifyContent: "space-between",
+                    gap: 16,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <div>
+                    <span className="badge">Case Briefing Video</span>
+                    <h3 style={{ margin: "10px 0 0" }}>بریفینگ تصویری پرونده</h3>
+                  </div>
+
+                  <span className="small">حدود ۱ دقیقه</span>
+                </div>
+
+                <video
+                  controls
+                  preload="metadata"
+                  playsInline
+                  style={{
+                    width: "100%",
+                    display: "block",
+                    overflow: "hidden",
+                    borderRadius: 22,
+                    border: "1px solid rgba(255, 255, 255, 0.12)",
+                    background: "#05070b",
+                    boxShadow: "0 24px 70px rgba(0, 0, 0, 0.45)",
+                  }}
+                >
+                  <source src="/videos/briefing-whitechapel.mp4" type="video/mp4" />
+                  مرورگر شما از پخش ویدیو پشتیبانی نمی‌کند.
+                </video>
+
+                <p className="text">
+                  ابتدا بریفینگ تصویری را ببینید، سپس وارد اتاق پرونده شوید و مدارک را
+                  بررسی کنید.
+                </p>
+              </div>
+
+              <p className="text">{activeCase.briefing}</p>
 
               <div className="panel warning">
                 هشدار محتوایی: این پرونده شامل قتل، مسمومیت، فساد مالی و روابط عاطفی
@@ -476,7 +654,7 @@ export default function Home() {
 
               <div className="panel">
                 <h3>مأموریت تیم</h3>
-                <p className="text">{caseData.mission}</p>
+                <p className="text">{activeCase.mission}</p>
               </div>
 
               <button className="btn" onClick={goToGame}>
@@ -490,9 +668,9 @@ export default function Home() {
           <section>
             <div className="header">
               <div>
-                <strong>{caseData.title}</strong>
+                <strong>{activeCase.title}</strong>
                 <div className="small">
-                  فاز فعلی: {caseData.phases[currentPhase - 1]} • پیشرفت {progressPercent}٪
+                  فاز فعلی: {activeCase.phases[currentPhase - 1]} • پیشرفت {progressPercent}٪
                 </div>
               </div>
 
@@ -500,7 +678,7 @@ export default function Home() {
                 <button
                   className="btn secondary"
                   onClick={() =>
-                    setCurrentPhase((phase) => Math.min(phase + 1, caseData.phases.length))
+                    setCurrentPhase((phase) => Math.min(phase + 1, activeCase.phases.length))
                   }
                 >
                   پیشروی دستی فاز
@@ -517,15 +695,15 @@ export default function Home() {
                 <div className="panel">
                   <h3>پرونده</h3>
                   <p className="small">
-                    قربانی: {caseData.victim.name}، {caseData.victim.age} ساله
+                    قربانی: {activeCase.victim.name}، {activeCase.victim.age} ساله
                   </p>
-                  <p className="small">{caseData.victim.summary}</p>
+                  <p className="small">{activeCase.victim.summary}</p>
                 </div>
 
                 <div className="panel">
                   <h3>فازها</h3>
                   <div className="phase-list">
-                    {caseData.phases.map((phase, index) => (
+                    {activeCase.phases.map((phase, index) => (
                       <div
                         key={phase}
                         className={`phase-item ${index + 1 === currentPhase ? "active" : ""}`}
@@ -537,10 +715,10 @@ export default function Home() {
                 </div>
                 <div className="panel">
                   <h3>امکانات این دوره</h3>
-                  <p className="small">دوره پرونده: {caseData.era}</p>
+                  <p className="small">دوره پرونده: {activeCase.era}</p>
 
                   <div className="stack">
-                    {caseData.availableTools.map((tool) => (
+                    {activeCase.availableTools.map((tool) => (
                       <div
                         key={tool.id}
                         className={`era-tool ${tool.available ? "available" : "unavailable"}`}
@@ -561,7 +739,7 @@ export default function Home() {
                 <div className="panel">
                   <h3>مظنون‌ها</h3>
                   <div className="stack">
-                    {caseData.suspects.map((suspect) => (
+                    {activeCase.suspects.map((suspect) => (
                       <SuspectMini key={suspect.id} suspect={suspect} />
                     ))}
                   </div>
@@ -572,7 +750,7 @@ export default function Home() {
                 <div className="panel">
                   <h2>مدارک آزادشده</h2>
                   <div className="evidence-grid">
-                    {caseData.evidence.map((item) => {
+                    {activeCase.evidence.map((item) => {
                       const locked = item.phase > currentPhase;
                       const active = selectedEvidenceId === item.id;
 
@@ -586,6 +764,7 @@ export default function Home() {
                           }`}
                           onClick={() => setSelectedEvidenceId(item.id)}
                         >
+                          <EvidenceCardImage item={item} />
                           <span className="type-pill">{item.type}</span>
                           <h3>{item.title}</h3>
                           <p className="small">{locked ? "قفل‌شده" : item.summary}</p>
@@ -600,10 +779,11 @@ export default function Home() {
 
                 <EvidenceViewer
                   evidence={selectedEvidence}
-                  locked={selectedEvidence.phase > currentPhase}
-                  flagged={flaggedEvidenceIds.includes(selectedEvidence.id)}
-                  onFlag={() => toggleFlag(selectedEvidence.id)}
+                  locked={selectedEvidence ? selectedEvidence.phase > currentPhase : false}
+                  flagged={selectedEvidence ? flaggedEvidenceIds.includes(selectedEvidence.id) : false}
+                  onFlag={() => selectedEvidence && toggleFlag(selectedEvidence.id)}
                   onAddNote={() =>
+                    selectedEvidence &&
                     setNotes((prev) => [
                       `مدرک مهم: ${selectedEvidence.title} - ${selectedEvidence.summary}`,
                       ...prev,
@@ -614,7 +794,7 @@ export default function Home() {
                 <div className="panel">
                   <h2>تایم‌لاین</h2>
                   <div className="stack">
-                    {caseData.timeline
+                    {activeCase.timeline
                       .filter((item) => item.phase <= currentPhase)
                       .map((item) => (
                         <div key={item.id} className="note-item">
@@ -632,7 +812,7 @@ export default function Home() {
                 <div className="panel">
                   <h3>اقدام‌های تحقیقاتی</h3>
                   <div className="stack">
-                    {caseData.actions.map((action) => (
+                    {activeCase.actions.map((action) => (
                       <button
                         key={action.id}
                         type="button"
@@ -687,7 +867,7 @@ export default function Home() {
                     }
                   >
                     <option value="">انتخاب کنید</option>
-                    {caseData.suspects.map((suspect) => (
+                    {activeCase.suspects.map((suspect) => (
                       <option key={suspect.id} value={suspect.id}>
                         {suspect.name}
                       </option>
@@ -757,6 +937,7 @@ export default function Home() {
                       }`}
                       onClick={() => toggleEvidenceForAccusation(item.id)}
                     >
+                      <EvidenceCardImage item={item} />
                       <h3>{item.title}</h3>
                       <p className="small">{item.summary}</p>
                     </button>
@@ -765,47 +946,22 @@ export default function Home() {
               </div>
 
               <div className="form-grid">
-                <ExplanationField
-                  label="چرا ناصر قاتل نیست؟"
-                  value={accusation.suspectExplanations.suspect_naser}
-                  onChange={(value) =>
-                    setAccusation((prev) => ({
-                      ...prev,
-                      suspectExplanations: {
-                        ...prev.suspectExplanations,
-                        suspect_naser: value,
-                      },
-                    }))
-                  }
-                />
-
-                <ExplanationField
-                  label="چرا لیلا قاتل نیست؟"
-                  value={accusation.suspectExplanations.suspect_leyla}
-                  onChange={(value) =>
-                    setAccusation((prev) => ({
-                      ...prev,
-                      suspectExplanations: {
-                        ...prev.suspectExplanations,
-                        suspect_leyla: value,
-                      },
-                    }))
-                  }
-                />
-
-                <ExplanationField
-                  label="چرا کامران قاتل نیست؟"
-                  value={accusation.suspectExplanations.suspect_kamran}
-                  onChange={(value) =>
-                    setAccusation((prev) => ({
-                      ...prev,
-                      suspectExplanations: {
-                        ...prev.suspectExplanations,
-                        suspect_kamran: value,
-                      },
-                    }))
-                  }
-                />
+                {activeCase.suspects.map((suspect) => (
+                  <ExplanationField
+                    key={suspect.id}
+                    label={`چرا ${suspect.name} قاتل نیست؟`}
+                    value={accusation.suspectExplanations?.[suspect.id] ?? ""}
+                    onChange={(value) =>
+                      setAccusation((prev) => ({
+                        ...prev,
+                        suspectExplanations: {
+                          ...prev.suspectExplanations,
+                          [suspect.id]: value,
+                        },
+                      }))
+                    }
+                  />
+                ))}
               </div>
 
               {!isAccusationValid && (
@@ -850,9 +1006,9 @@ export default function Home() {
                   <ScoreRow label="قاتل" value={result.breakdown.killer} max={20} />
                   <ScoreRow label="انگیزه" value={result.breakdown.motive} max={15} />
                   <ScoreRow label="روش قتل" value={result.breakdown.method} max={15} />
-                  <ScoreRow label="زمان‌بندی" value={result.breakdown.timeWindow} max={20} />
+                  <ScoreRow label="زمان‌بندی" value={(result.breakdown as any).timeline ?? (result.breakdown as any).timeWindow ?? 0} max={20} />
                   <ScoreRow label="مدارک" value={result.breakdown.evidence} max={20} />
-                  <ScoreRow label="رد مظنون‌ها" value={result.breakdown.explanations} max={10} />
+                  <ScoreRow label="رد مظنون‌ها" value={(result.breakdown as any).elimination ?? (result.breakdown as any).explanations ?? 0} max={10} />
                 </div>
 
                 <div className="actions">
@@ -926,6 +1082,81 @@ function SuspectMini({ suspect }: { suspect: Suspect }) {
   );
 }
 
+
+function getEvidenceImage(item: EvidenceItem) {
+  const explicitImage = (item as EvidenceItem & { image?: string }).image;
+  if (explicitImage) return explicitImage;
+
+  const haystack = [
+    item.id,
+    item.title,
+    item.type,
+    item.summary,
+    item.content,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  const rules: Array<[string[], string]> = [
+    [["newspaper", "روزنامه", "خبر", "رسانه", "journalist"], "/evidence/newspaper-clipping.webp"],
+    [["pocket-watch", "watch", "ساعت", "زمان", "timeline", "time"], "/evidence/pocket-watch.webp"],
+    [["boot", "footprint", "print", "رد کفش", "کفش", "گل"], "/evidence/boot-print.webp"],
+    [["medical", "doctor", "پزشک", "طبی", "کیف پزشکی"], "/evidence/medical-bag.webp"],
+    [["knife", "surgical", "چاقو", "جراحی", "weapon", "method"], "/evidence/surgical-knife.webp"],
+    [["butcher", "قصاب", "پیش بند", "apron"], "/evidence/butcher-apron.webp"],
+    [["ink-glove", "دستکش جوهری"], "/evidence/ink-gloves.webp"],
+    [["ink", "جوهر", "چاپ", "printing"], "/evidence/ink-bottle.webp"],
+    [["wax", "seal", "مهر", "مومی"], "/evidence/wax-seal.webp"],
+    [["key", "کلید", "access", "دسترسی"], "/evidence/skeleton-key.webp"],
+    [["map", "نقشه", "location", "محل", "مسیر"], "/evidence/map-fragment.webp"],
+    [["police", "badge", "نشان", "پلیس"], "/evidence/police-badge.webp"],
+    [["witness", "statement", "شاهد", "شهادت", "اظهارات"], "/evidence/witness-statement.webp"],
+    [["lace", "glove", "دستکش", "قربانی"], "/evidence/lace-glove.webp"],
+    [["ring", "انگشتر", "black gem"], "/evidence/black-ring.webp"],
+    [["match", "کبریت"], "/evidence/matchbox.webp"],
+    [["train", "ticket", "قطار", "بلیت", "بلیط", "alibi"], "/evidence/train-ticket.webp"],
+    [["diary", "دفترچه", "یادداشت"], "/evidence/pocket-diary.webp"],
+    [["lantern", "فانوس", "چراغ"], "/evidence/gas-lantern.webp"],
+    [["letter", "نامه", "کاغذ", "paper", "document"], "/evidence/bloodstained-letter.webp"],
+  ];
+
+  return rules.find(([keywords]) => keywords.some((keyword) => haystack.includes(keyword)))?.[1];
+}
+
+function EvidenceCardImage({ item, large = false }: { item: EvidenceItem; large?: boolean }) {
+  const image = getEvidenceImage(item);
+  if (!image) return null;
+
+  return (
+    <div
+      style={{
+        width: "100%",
+        aspectRatio: large ? "16 / 9" : "16 / 10",
+        overflow: "hidden",
+        borderRadius: large ? 22 : 18,
+        marginBottom: 14,
+        background: "rgba(0, 0, 0, 0.35)",
+        border: "1px solid rgba(216, 194, 143, 0.16)",
+        boxShadow: "inset 0 0 0 1px rgba(255, 255, 255, 0.04)",
+      }}
+    >
+      <img
+        src={image}
+        alt={item.title}
+        loading="lazy"
+        style={{
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          display: "block",
+          filter: "saturate(0.92) contrast(1.04)",
+        }}
+      />
+    </div>
+  );
+}
+
 function EvidenceViewer({
   evidence,
   locked,
@@ -953,6 +1184,8 @@ function EvidenceViewer({
         <span className="type-pill">{evidence.type}</span>
         <h2>{evidence.title}</h2>
       </div>
+
+      {!locked && <EvidenceCardImage item={evidence} large />}
 
       {locked ? (
         <p className="text">
