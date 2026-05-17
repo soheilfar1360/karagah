@@ -620,12 +620,16 @@ export default function Home() {
   }
 
   return (
-    <main className="page">
+    <main className={`page screen-${screen}`}>
       <div className="shell">
         {screen === "landing" && (
           <section className="hero">
             <div>
-              <span className="badge">{isCustomCaseActive ? "پرونده سفارشی فعال" : "پرونده ۰۰۱ • MVP Prototype"}</span>
+              <div className="status-badges">
+                <span className="badge">پرونده فعال</span>
+                {isCustomCaseActive && <span className="badge accent">پرونده سفارشی فعال</span>}
+                <span className="badge quiet">AI Judge</span>
+              </div>
               <h1 className="title">کارآگاه</h1>
               <p className="subtitle">پرونده را نخوان. حلش کن.</p>
               <p className="text">
@@ -646,7 +650,10 @@ export default function Home() {
             </div>
 
             <div className="card case-preview">
-              <span className="badge">{activeCase.era}</span>
+              <div className="status-badges">
+                <span className="badge">{activeCase.era}</span>
+                <span className="badge quiet">{activeCase.duration}</span>
+              </div>
               <h2>{activeCase.title}</h2>
               <p className="text">{activeCase.briefing}</p>
 
@@ -880,7 +887,7 @@ export default function Home() {
               <h1>{activeCase.title}</h1>
 
               <div
-                className="panel stack"
+                className="panel stack briefing-panel"
                 style={{
                   padding: 18,
                   borderRadius: 24,
@@ -899,7 +906,7 @@ export default function Home() {
                   }}
                 >
                   <div>
-                    <span className="badge">Case Briefing Video</span>
+                    <span className="badge quiet">Case Briefing</span>
                     <h3 style={{ margin: "10px 0 0" }}>بریفینگ تصویری پرونده</h3>
                   </div>
 
@@ -907,6 +914,7 @@ export default function Home() {
                 </div>
 
                 <video
+                  className="briefing-video"
                   controls
                   preload="metadata"
                   playsInline
@@ -956,6 +964,11 @@ export default function Home() {
                 <strong>{activeCase.title}</strong>
                 <div className="small">
                   فاز فعلی: {activeCase.phases[currentPhase - 1]} • پیشرفت {progressPercent}٪
+                </div>
+                <div className="status-badges compact">
+                  <span className="badge">پرونده فعال</span>
+                  {isCustomCaseActive && <span className="badge accent">پرونده سفارشی فعال</span>}
+                  <span className="badge quiet">AI Judge</span>
                 </div>
               </div>
 
@@ -1266,7 +1279,8 @@ export default function Home() {
         {screen === "result" && (
           <SimplePage title="نتیجه داوری" back={() => setScreen("final")}>
             {isJudging && (
-              <div className="card stack">
+              <div className="card stack judging-card">
+                <div className="judging-orb" />
                 <p className="score">در حال داوری...</p>
                 <p className="text">قاضی پرونده دارد اتهام را بررسی می‌کند.</p>
               </div>
@@ -1283,11 +1297,27 @@ export default function Home() {
             )}
 
             {!isJudging && !judgeError && result && (
-              <div className="card stack">
-                <p className="score">{result.total}/100</p>
-                <p className="text">{result.feedback}</p>
+              <div className="card stack verdict-card">
+                <div className="verdict-head">
+                  <div className="score-ring">
+                    <span>{result.total}</span>
+                    <small>/100</small>
+                  </div>
+                  <div>
+                    <span className="badge accent">
+                      {String(result.judgedBy ?? "").toLowerCase() === "openai"
+                        ? "OpenAI داوری کرده"
+                        : "داوری داخلی"}
+                    </span>
+                    <h2>رأی نهایی پرونده</h2>
+                  </div>
+                </div>
 
-                <div className="panel">
+                <div className="panel verdict-feedback">
+                  <p className="text">{result.feedback}</p>
+                </div>
+
+                <div className="panel score-breakdown">
                   <ScoreRow label="قاتل" value={result.breakdown.killer} max={20} />
                   <ScoreRow label="انگیزه" value={result.breakdown.motive} max={15} />
                   <ScoreRow label="روش قتل" value={result.breakdown.method} max={15} />
@@ -1344,6 +1374,10 @@ function SimplePage({
         <div>
           <strong>{title}</strong>
           <div className="small">کارآگاه • نمونه اولیه</div>
+          <div className="status-badges compact">
+            <span className="badge">پرونده فعال</span>
+            <span className="badge quiet">AI Judge</span>
+          </div>
         </div>
 
         <button className="btn secondary" onClick={back}>
@@ -1456,29 +1490,12 @@ function EvidenceCardImage({ item, large = false }: { item: EvidenceItem; large?
   if (!image) return null;
 
   return (
-    <div
-      style={{
-        width: "100%",
-        aspectRatio: large ? "16 / 9" : "16 / 10",
-        overflow: "hidden",
-        borderRadius: large ? 22 : 18,
-        marginBottom: 14,
-        background: "rgba(0, 0, 0, 0.35)",
-        border: "1px solid rgba(216, 194, 143, 0.16)",
-        boxShadow: "inset 0 0 0 1px rgba(255, 255, 255, 0.04)",
-      }}
-    >
+    <div className={`evidence-image-wrap ${large ? "large" : ""}`}>
       <img
         src={image}
         alt={item.title}
         loading="lazy"
-        style={{
-          width: "100%",
-          height: "100%",
-          objectFit: "cover",
-          display: "block",
-          filter: "saturate(0.92) contrast(1.04)",
-        }}
+        className="evidence-image"
       />
     </div>
   );

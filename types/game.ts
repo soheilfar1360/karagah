@@ -112,4 +112,5 @@ export type JudgeResult = {
   feedback: string;
   correctEvidence: string[];
   missedEvidence: string[];
+  judgedBy?: string;
 };
